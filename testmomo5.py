@@ -116,7 +116,7 @@ STABLECOINS = {
     'EUL', 'EUR', 'EURT', 'USDS', 'USTS', 'USTC', 'USDG', 'MSOL',
     'TREMP', 'BSX', 'SBR', 'AUD', 'IDEX', 'FIS', 'CSM', 'GBP', 'POWR', 
     'ATLAS', 'XCN', 'BOBA', 'OXY', 'BNC', 'POLIS', 'AIR', 'C98', 'EURT',
-    'STRD', 'PYUSD', 'BTT'
+    'STRD', 'PYUSD', 'BTT', 'USDR'
 }
 
 def fetch_usd_pairs(exchange_instance):
