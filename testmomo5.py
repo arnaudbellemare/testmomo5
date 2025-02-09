@@ -286,10 +286,10 @@ portfolio_type_key = portfolio_type.lower().replace(" ", "_")
 timeframe = st.sidebar.selectbox("Timeframe", options=['1m', '1h', '4h', '1d'], index=2)
 limit = st.sidebar.number_input("Number of candles", min_value=24, max_value=1440, value=200, step=10)
 
-k = st.sidebar.number_input("Max number of assets in portfolio (k)", min_value=2, max_value=20, value=10, step=1)
+k = st.sidebar.number_input("Max number of assets in portfolio (k)", min_value=2, max_value=20, value=15, step=1)
 max_weight = st.sidebar.slider("Max weight per asset", min_value=0.5, max_value=1.0, value=0.8, step=0.05)
 # 'a' parameter to set the minimum weight threshold as 1/(a*k)
-a = st.sidebar.number_input("Parameter a (for min weight threshold = 1/(a*k))", min_value=2, max_value=10, value=4, step=1)
+a = st.sidebar.number_input("Parameter a (for min weight threshold = 1/(a*k))", min_value=1.33, max_value=10, value=4, step=1)
 min_weight = st.sidebar.slider("Min weight per asset", min_value=0.0, max_value=0.5, value=1/(a*k), step=0.01)
 
 st.sidebar.header("Asset Selection")
@@ -360,9 +360,17 @@ else:
         else:
             st.write(f"Predictability measure (mean reversion): {measure:.4f}")
         
-        # Reconstruct portfolio time series
-        P_demeaned = np.dot(S, weights)  # Portfolio from demeaned data
-        P_value = bring_back_mean(S, S_original, weights)  # Portfolio with asset means added back
+        # Get the indices of the selected assets from the original DataFrame's columns
+        selected_indices = [price_df.columns.get_loc(asset) for asset in selected_assets]
+
+        # Subset S and S_original to include only the selected asset columns
+        S_subset = S[:, selected_indices]
+        S_original_subset = S_original[:, selected_indices]
+
+        # Reconstruct portfolio time series using the subset data
+        P_demeaned = np.dot(S_subset, weights)  # Portfolio from demeaned data
+        P_value = bring_back_mean(S_subset, S_original_subset, weights)  # Portfolio with asset means added back
+
         
         st.subheader("Portfolio Time Series")
         st.line_chart(pd.DataFrame({
