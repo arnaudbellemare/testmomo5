@@ -289,7 +289,7 @@ limit = st.sidebar.number_input("Number of candles", min_value=24, max_value=144
 k = st.sidebar.number_input("Max number of assets in portfolio (k)", min_value=2, max_value=20, value=15, step=1)
 max_weight = st.sidebar.slider("Max weight per asset", min_value=0.5, max_value=1.0, value=0.8, step=0.05)
 # 'a' parameter to set the minimum weight threshold as 1/(a*k)
-a = st.sidebar.number_input("Parameter a (for min weight threshold = 1/(a*k))", min_value=1.33, max_value=10.0, value=4.0, step=1.0)
+a = st.sidebar.number_input("Parameter a (for min weight threshold = 1/(a*k))", min_value=1.00, max_value=10.00, value=1.33, step=1.00)
 min_weight = st.sidebar.slider("Min weight per asset", min_value=0.0, max_value=0.5, value=1/(a*k), step=0.01)
 
 st.sidebar.header("Asset Selection")
