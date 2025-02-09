@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 # ------------------ Fractional Differencing Functions ------------------
 def frac_diff(x, d):
     """
-    Fractionally difference time series.
+    Fractionally difference time series (loop-based version).
     """
     if np.isnan(np.sum(x)):
         return None
@@ -30,7 +30,7 @@ def frac_diff(x, d):
     for k in range(2, n):
         weights[k - 1] = weights[k - 2] * (k - 1 - d) / k
 
-    # Apply fractional differencing (loop-based)
+    # Apply fractional differencing
     ydiff = list(x)
     for i in range(n):
         dat = x[:i]
@@ -41,7 +41,7 @@ def frac_diff(x, d):
 
 def frac_diff_vect(x, d):
     """
-    Fractionally difference time series (vectorized).
+    Fractionally difference time series (vectorized version).
     """
     if np.isnan(np.sum(x)):
         return None
@@ -93,7 +93,9 @@ def test_stationarity(series):
         return 1.0
 
 def find_optimal_d(df, d_values=np.linspace(0.1, 1.0, 10), threshold=0.05):
-    """Find the best differencing parameter d for stationarity."""
+    """
+    Find the best differencing parameter d for stationarity.
+    """
     for d in d_values:
         frac_diff_df = apply_frac_diff(df, d)
         p_values = frac_diff_df.apply(test_stationarity)
@@ -128,7 +130,7 @@ def fetch_usd_pairs(exchange_instance):
             if '/USD' in symbol.upper()
             and all(asset.upper() not in STABLECOINS for asset in symbol.split('/'))
         ]
-        usd_pairs = list(set(usd_pairs))
+        usd_pairs = list(set(usd_pairs))  # ensure uniqueness
         logging.info(f"Fetched {len(usd_pairs)} USD-denominated trading pairs from Kraken.")
         return usd_pairs
     except Exception as e:
@@ -138,51 +140,68 @@ def fetch_usd_pairs(exchange_instance):
 # ------------------ Portfolio Construction Functions ------------------
 def compute_predictability_for_subset(data, portfolio_type="mean_reversion"):
     """
-    Given a numpy array data of shape (T, s) for s assets,
-    compute the portfolio weights x that optimize the predictability measure:
-    
-        ν(x)= (x^T A^T Γ A x) / (x^T Γ x).
-    
+    Given a numpy array 'data' of shape (T, s) for s assets, compute the portfolio weights x
+    that optimize the predictability measure:
+        ν(x) = (x^T A^T Γ A x) / (x^T Γ x)
+
     Steps:
       - Estimate A via least squares regression using lagged data.
       - Compute the covariance matrix Γ.
       - Perform a Cholesky decomposition: Γ = L L^T.
       - Form B = L_inv @ (A^T Γ A) @ L_inv, where L_inv approximates Γ^{-1/2}.
-      - For a mean-reverting portfolio, choose the eigenvector corresponding to the smallest eigenvalue.
-        For a momentum portfolio, choose the eigenvector corresponding to the largest eigenvalue.
-      - Recover portfolio weights: x = L_inv @ z, then normalize.
+      - For a mean-reverting portfolio, choose the eigenvector corresponding
+        to the smallest eigenvalue.
+        For a momentum portfolio, choose the eigenvector corresponding
+        to the largest eigenvalue.
+      - Recover portfolio weights x = L_inv @ z, then normalize.
     """
     # Prepare lagged data: X = S_{t-1}, Y = S_t
     X = data[:-1, :]
     Y = data[1:, :]
+
+    # Solve for A in Y = X * A
     A, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
+
+    # Covariance of the data
     Gamma = np.cov(data.T)
+
+    # Cholesky decomposition
     L = np.linalg.cholesky(Gamma)
     L_inv = np.linalg.inv(L)
+
+    # B = L_inv @ (A^T Γ A) @ L_inv
     B = L_inv @ (A.T @ Gamma @ A) @ L_inv
+
+    # Eigen-decomposition
     eigvals, eigvecs = np.linalg.eig(B)
+
     if portfolio_type == "momentum":
         idx = np.argmax(eigvals.real)
     else:
         idx = np.argmin(eigvals.real)
+
     z = eigvecs[:, idx].real
     x = L_inv @ z
+
+    # Normalize weights
     x = x / np.linalg.norm(x)
+
     predictability = eigvals[idx].real
     return x, predictability
 
 def greedy_search(data, asset_names, k, a=4, max_weight=0.8, min_weight=None, portfolio_type="mean_reversion"):
     """
     Perform a greedy search to select up to k assets that optimize the predictability measure.
-    
+
     For a mean-reverting portfolio, we aim to minimize predictability.
     For a momentum portfolio, we aim to maximize predictability.
-    
-    The algorithm:
-      1. Brute-force over all asset pairs to find the best two-asset portfolio (subject to diversification constraints).
-      2. Iteratively add one asset at a time that yields the best improvement, ensuring that no single asset weight exceeds max_weight
-         and every nonzero weight is above a minimum threshold (defaulted to 1/(a*k)).
-    
+
+    Algorithm:
+      1. Brute-force over all asset pairs to find the best two-asset portfolio.
+      2. Iteratively add one asset at a time that yields the best improvement,
+         ensuring that no single asset weight exceeds max_weight
+         and every nonzero weight is above min_weight (defaulted to 1/(a*k)).
+
     Returns:
       - List of selected asset names
       - Corresponding weight vector
@@ -190,25 +209,30 @@ def greedy_search(data, asset_names, k, a=4, max_weight=0.8, min_weight=None, po
     """
     if min_weight is None:
         min_weight = 1 / (a * k)
+
     n_assets = data.shape[1]
     candidate_indices = list(range(n_assets))
-    
+
     if portfolio_type == "momentum":
         best_measure = -np.inf
     else:
         best_measure = np.inf
+
     best_pair = None
     best_weights = None
 
     # Step 1: Evaluate all asset pairs
+    from itertools import combinations
     for pair in combinations(candidate_indices, 2):
         sub_data = data[:, list(pair)]
         try:
             weights, measure = compute_predictability_for_subset(sub_data, portfolio_type)
         except Exception:
             continue
+
         if np.max(np.abs(weights)) > max_weight or np.min(np.abs(weights)) < min_weight:
             continue
+
         if portfolio_type == "momentum":
             if measure > best_measure:
                 best_measure = measure
@@ -227,24 +251,29 @@ def greedy_search(data, asset_names, k, a=4, max_weight=0.8, min_weight=None, po
     current_measure = best_measure
     current_weights = best_weights
 
-    # Step 2: Iteratively add assets until reaching k assets
+    # Step 2: Iteratively add assets until reaching k or no improvement
     improved = True
     while len(current_subset) < k and improved:
         improved = False
         best_candidate = None
         best_candidate_weights = None
         best_candidate_measure = current_measure
+
         for i in candidate_indices:
             if i in current_subset:
                 continue
+
             new_subset = current_subset + [i]
             sub_data = data[:, new_subset]
+
             try:
                 weights, measure = compute_predictability_for_subset(sub_data, portfolio_type)
             except Exception:
                 continue
+
             if np.max(np.abs(weights)) > max_weight or np.min(np.abs(weights)) < min_weight:
                 continue
+
             if portfolio_type == "momentum":
                 if measure > best_candidate_measure:
                     best_candidate_measure = measure
@@ -255,6 +284,7 @@ def greedy_search(data, asset_names, k, a=4, max_weight=0.8, min_weight=None, po
                     best_candidate_measure = measure
                     best_candidate = i
                     best_candidate_weights = weights
+
         if best_candidate is not None:
             current_subset.append(best_candidate)
             current_measure = best_candidate_measure
@@ -266,15 +296,16 @@ def greedy_search(data, asset_names, k, a=4, max_weight=0.8, min_weight=None, po
 
 def bring_back_mean(S, S_original, x):
     """
-    Reconstruct the actual portfolio series by adding back the asset means.
-    
-    S: Demeaned price matrix (T x n)
-    S_original: Original price matrix (T x n)
+    Reconstruct the portfolio series in log space by adding back the mean of log prices.
+
+    S: Demeaned log-price matrix (T x n)
+    S_original: Original log-price matrix (T x n)
     x: Portfolio weight vector (n,)
     """
     asset_means = np.nanmean(S_original, axis=0)  # shape (n,)
-    portfolio_mean = np.dot(x, asset_means)         # scalar
-    # Portfolio series computed from demeaned data plus the weighted asset means
+    portfolio_mean = np.dot(x, asset_means)       # scalar
+
+    # Portfolio time series from demeaned data plus weighted asset means
     return np.dot(S, x) + portfolio_mean
 
 # ------------------ Sidebar: User Inputs ------------------
@@ -295,11 +326,13 @@ min_weight = st.sidebar.slider("Min weight per asset", min_value=0.0, max_value=
 st.sidebar.header("Asset Selection")
 all_symbols = fetch_usd_pairs(exchange)
 use_all = st.sidebar.checkbox("Use all available USD-denominated tickers", value=False)
+
 if use_all:
     selected_symbols = all_symbols
 else:
     default_selection = ['BTC/USD', 'ETH/USD', 'LTC/USD', 'XRP/USD', 'BCH/USD']
     selected_symbols = st.sidebar.multiselect("Select assets for portfolio formation", all_symbols, default=default_selection)
+
 st.sidebar.write(f"Total assets selected: {len(selected_symbols)}")
 
 # ------------------ Data Collection ------------------
@@ -323,9 +356,12 @@ else:
     # Align price data on the timestamp index and drop missing values
     price_df = pd.concat(data_dict, axis=1)
     price_df.dropna(inplace=True)
-    st.write("Aligned Price Data (first 5 rows):")
+
+    # ------------------ Step 1: Log Transform the Price Data ------------------
+    price_df = np.log(price_df)
+    st.write("Log-Transformed Price Data (first 5 rows):")
     st.dataframe(price_df.head())
-    
+
     # ------------------ Optional: Apply Fractional Differencing ------------------
     apply_frac_diff_flag = st.sidebar.checkbox("Apply Fractional Differencing", value=False)
     if apply_frac_diff_flag:
@@ -333,19 +369,21 @@ else:
         st.write(f"Applying fractional differencing with d = {d}...")
         price_df = apply_frac_diff(price_df, d, method='vectorized')
         price_df.dropna(inplace=True)
-        st.write("Fractionally Differenced Price Data (first 5 rows):")
+        st.write("Fractionally Differenced (Log) Price Data (first 5 rows):")
         st.dataframe(price_df.head())
 
-    # Store original price data and then demean it
-    S_original = price_df.values.astype(float)
-    S = S_original - np.mean(S_original, axis=0)
+    # ------------------ Prepare Data for Portfolio Construction ------------------
+    S_original = price_df.values.astype(float)          # Logged prices
+    S = S_original - np.mean(S_original, axis=0)        # Demeaned log prices
+
     st.write("Number of time points used:", S.shape[0])
-    
+
     # ------------------ Portfolio Optimization via Greedy Search ------------------
     st.header(f"Computing the Sparse {portfolio_type} Portfolio")
     selected_assets, weights, measure = greedy_search(
         S, list(price_df.columns), int(k), a, max_weight, min_weight, portfolio_type=portfolio_type_key
     )
+
     if selected_assets is None:
         st.error("No valid portfolio found with the given constraints.")
     else:
@@ -355,25 +393,34 @@ else:
             "Weight": weights
         })
         st.dataframe(portfolio_df)
+
         if portfolio_type_key == "momentum":
             st.write(f"Predictability measure (momentum): {measure:.4f}")
         else:
             st.write(f"Predictability measure (mean reversion): {measure:.4f}")
-        
-        # Get the indices of the selected assets from the original DataFrame's columns
+
+        # Indices for selected assets
         selected_indices = [price_df.columns.get_loc(asset) for asset in selected_assets]
 
-        # Subset S and S_original to include only the selected asset columns
+        # Subset S and S_original for the selected assets
         S_subset = S[:, selected_indices]
         S_original_subset = S_original[:, selected_indices]
 
-        # Reconstruct portfolio time series using the subset data
-        P_demeaned = np.dot(S_subset, weights)  # Portfolio from demeaned data
-        P_value = bring_back_mean(S_subset, S_original_subset, weights)  # Portfolio with asset means added back
+        # Reconstruct the log-portfolio (demeaned version)
+        P_demeaned = np.dot(S_subset, weights)  # In log space
 
-        
+        # Reconstruct the final portfolio in log space (adding back means)
+        P_value_log_space = bring_back_mean(S_subset, S_original_subset, weights)
+
+        # Exponentiate to obtain actual price levels
+        P_value_actual = np.exp(P_value_log_space)
+
         st.subheader("Portfolio Time Series")
-        st.line_chart(pd.DataFrame({
-            "Demeaned Portfolio": P_demeaned,
-            "Actual Portfolio": P_value
-        }))
+        portfolio_timeseries_df = pd.DataFrame({
+            "Demeaned Portfolio (Log Space)": P_demeaned,
+            "Portfolio (Actual Price Space)": P_value_actual
+        }, index=price_df.index)
+
+        st.line_chart(portfolio_timeseries_df)
+
+# End of script
